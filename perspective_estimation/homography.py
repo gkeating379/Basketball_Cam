@@ -1,7 +1,6 @@
 from collections import defaultdict
 import numpy as np
 import cv2
-import time
 import math
 
 #global (based on output image of court)
@@ -234,11 +233,9 @@ def get_reprojection_error(src, dst):
 
 def get_best_frame_homography(frame, court, court_canny):
     '''Returns the best homography from the frame to the court'''
-    start_time = time.time()
 
     kmeans = frame_to_2means(frame)
     lines, H, p1, p2, p3, p4 = draw_k_best_lines(kmeans, 10, court, court_canny)
 
-    print(f'Frame Runtime: {(time.time() - start_time)} seconds')
 
     return H, p1, p2, p3, p4

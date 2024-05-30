@@ -28,42 +28,71 @@ def update_drift_full(M, points):
         points[i] = np.matmul(M, np.append(points[i], 1).T)
     return np.array(points)
 
-def create_mask(im):
+def create_mask(im, court_corners, detections):
     '''Creates mask of which regions to include for feature tracking
     
-    im=> image to mask'''
-    mask = np.zeros_like(im)
-    #block out bottom with score stuff
-    mask[:len(mask)//5] = 1 
+    im=> image to mask
+    court_corners => four corners of court
+    detections => list of object detections in xyxy
+    
+    Return
+    mask => mask over im where 1 is region to not consider'''
+    mask = np.ones_like(im)
+
+    #mask everything above the court
+    if court_corners is not None:
+        lowest_val = len(im)
+        for (x, y) in court_corners:
+            lowest_val = int(y) if y < lowest_val else lowest_val
+        mask[:lowest_val] = 0 
+    else: #guess top third is crowd
+        mask[:len(mask)//3] = 0
+
+    #mask all players
+    buffer = 30
+    for detection in detections:
+        for (x1, y1, x2, y2) in detection:
+            x1, y1, x2, y2 = int(x1), int(y1), int(x2), int(y2)
+            mask[y1-buffer:y2+buffer, x1-buffer:x2+buffer] = 0
+
+    #mask bottom part of screen where score is
+    #TODO remove static regions
+    mask[-len(mask)//4:] = 0
+
+    #remove left and right bounds where detection gets bad
+    mask[:, -len(mask[0])//10:] = 0
+    mask[:, :len(mask[0])//10] = 0
 
     return mask
     
-def get_affine_transform(cur_frame, old_frame, old_features):
+def get_affine_transform(frame, cur_frame, old_frame, old_features, court_corners, detections):
     '''Computes the affine transform that best maps between the features in the 
     previous frame and the current frame.  Feature correspondec is determined through
     optical flow
     
+    frame => current frame normal (used for displaying feature corresondences)
     cur_frame => current frame in greyscale
     old_frame => last frame in greyscale
     old_features => previous set of features from last frame (find correspondences with)
+    detections => list of object detections in xyxy
     
     Returns 
     M => affine transform matrix
     features => features found in the cur_frame'''
-    mask = create_mask(cur_frame)
-    #TODO decide to recompute 100 each frame or prune over time
-    features = cv2.goodFeaturesToTrack(cur_frame, maxCorners=200, qualityLevel=0.3, minDistance=3, mask=mask, blockSize=13)
-
+    mask = create_mask(cur_frame, court_corners, detections)
+    cv2.imshow('masked image', mask*cur_frame)
+    features = cv2.goodFeaturesToTrack(cur_frame, maxCorners=200, qualityLevel=0.1, minDistance=10, mask=mask, blockSize=13)
     M = None
     if old_frame is not None:
         new_feats, _, _ = cv2.calcOpticalFlowPyrLK(old_frame, cur_frame, old_features, features, winSize=(21,21), maxLevel=5, criteria=(cv2.TERM_CRITERIA_COUNT + cv2.TERM_CRITERIA_COUNT,50,0.1))
         M, _ = cv2.estimateAffinePartial2D(old_features, new_feats)
 
         #draw line between previous and current location in diplay image
-        # for old, new in zip(old_features, new_feats):
-        #     old_p = old.ravel().astype(np.int64)
-        #     new_p = new.ravel().astype(np.int64)
-        #     cv2.line(frame, old_p, new_p, [255,0,0], 3)
+        for old, new in zip(old_features, new_feats):
+            old_p = old.ravel().astype(np.int64)
+            new_p = new.ravel().astype(np.int64)
+            cv2.line(frame, old_p, new_p, [255,0,0], 3)
+
         
     return M, features
 
@@ -80,7 +109,7 @@ def draw_projection(frame, court, H):
     return proj_on_court
 
 
-def update_homography(frame, court, court_canny, old_frame, old_features, court_corners):
+def update_homography(frame, court, court_canny, old_frame, old_features, court_corners, detections):
     '''Updates the homography between frame and court.  First tries to find corner by intersection
     of Hough Lines.  If this is not possible, then updates previous court boundary with motion found
     by the optical flow transform
@@ -91,6 +120,7 @@ def update_homography(frame, court, court_canny, old_frame, old_features, court_
     old_frame => previous frame
     old_features => features found in previous fram
     court_corners => 4 corners marking the boundary of the court in the previous frame
+    detections => list of object detections in xyxy
     
     Returns
     H => homography from frame to court
@@ -98,19 +128,36 @@ def update_homography(frame, court, court_canny, old_frame, old_features, court_
     frame_grey => current_frame in greyscale
     features => features found in this frame'''
     frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) 
-    #homography 
-    H, n1, n2, n3, n4 = homography.get_best_frame_homography(frame, court, court_canny)
-    M, features = get_affine_transform(frame_gray, old_frame, old_features)
-    H = None #TODO testing
 
-    if H is None and court_corners is not None: #compute homography by the movement from the last used points if we cannot find a line
+    #homography by lines
+    H_lines, n1, n2, n3, n4 = homography.get_best_frame_homography(frame, court, court_canny)
+    H_lines = None
+    #court_corners = np.array([n1, n2, n3, n4])
+
+    #homography by affine
+    M, features = get_affine_transform(frame, frame_gray, old_frame, old_features, court_corners, detections)
+    if M is not None:
         dst_points = np.array([base_values['top-left'], base_values['top-right'], base_values['bot-left'], base_values['bot-right']])
         court_corners = update_drift_full(M, court_corners)
-        H, _ = cv2.findHomography(court_corners, dst_points)
+        H_affine, _ = cv2.findHomography(court_corners, dst_points)
+        
+        if H_lines is not None:
+            affine = draw_projection(frame, court, H_affine)
+            lines = draw_projection(frame, court, H_lines)
+                
+            affine_error = homography.get_reprojection_error(affine, court_canny)
+            lines_error = homography.get_reprojection_error(lines, court_canny)
+            
+            H = H_affine if affine_error < lines_error else H_lines
+            court_corners = court_corners if affine_error < lines_error else np.array([n1, n2, n3, n4])
+        else:
+            H = H_affine
 
     else:
+        H = H_lines
         court_corners = np.array([n1, n2, n3, n4])
 
+    
     if H is not None:
         draw_projection(frame, court, H)
 
