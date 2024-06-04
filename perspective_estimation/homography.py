@@ -1,7 +1,8 @@
-from collections import defaultdict
 import numpy as np
 import cv2
 import math
+import time
+import skimage.draw
 
 #global (based on output image of court)
 base_values = {'top-right': (546, 107), 'top-left': (53, 107), 'bot-left': (53, 1039), 'bot-right': (546, 1039),
@@ -9,14 +10,15 @@ base_values = {'top-right': (546, 107), 'top-left': (53, 107), 'bot-left': (53, 
 
 def frame_to_2means(frame):
     # Convert the image to a 1D array of floats
-    frame = cv2.GaussianBlur(frame,(5,5),2,2)
+    frame = np.copy(frame)
+    #frame = cv2.GaussianBlur(frame,(5,5),2,2)
     data = frame.reshape((-1, 3)).astype(np.float32)
 
     # Perform KMeans clustering
     K = 2
     criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 5, 50)
     attempts = 1
-    flags = cv2.KMEANS_RANDOM_CENTERS
+    flags = cv2.KMEANS_PP_CENTERS
 
     compactness, labels, centers = cv2.kmeans(data, K, None, criteria, attempts, flags)
 
@@ -31,7 +33,8 @@ def frame_to_2means(frame):
     segmented_image = segmented_image.reshape(frame.shape)
 
     #TODO see if this speeds up overall processing
-    segmented_image = cv2.morphologyEx(segmented_image, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8), iterations=1)
+    segmented_image = cv2.morphologyEx(segmented_image, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8), iterations=2)
+    #cv2.imwrite('test.png', segmented_image)
 
     return segmented_image
 
@@ -128,7 +131,7 @@ def draw_four(image, p1, p2, p3, p4, color):
 
     return image
 
-def find_best_projection(image, verts, horzs, court, court_canny):
+def find_best_projection(image, verts, horzs, court, court_canny, img_canny):
     '''Finds the best vertical and horizontal bound for the court
     Returns: Homography from current view to top down view
     
@@ -139,7 +142,7 @@ def find_best_projection(image, verts, horzs, court, court_canny):
     court_canny => Canny edges of the top down image'''
     #compare horizontal and vertical line intersections
     #find the best two lines to represent court boundaries
-    best_err = 99999999999999999999
+    best_err = 0
     proj = []
     c = 625
     for vert in verts:
@@ -155,12 +158,13 @@ def find_best_projection(image, verts, horzs, court, court_canny):
             else:
                 dst = [base_values['bot-left'], base_values['bot-right'], base_values['top-left'], base_values['top-right']]
 
-            img_proj, H = warp_image([p1, p2, p3, p4], dst, image, court)
-            
-            cur_err = get_reprojection_error(img_proj, court_canny)
+            H = warp_image([p1, p2, p3, p4], dst, image, court)
+
+            #get average line error            
+            cur_err = (eval_line(p1, p2, img_canny) + eval_line(p1, p3, img_canny)) / 2
 
             #update best H and the points that made it
-            if cur_err < best_err:
+            if cur_err > best_err:
                 best_err = cur_err
                 proj = H
                 b1, b2, b3, b4 = p1, p2, p3, p4 
@@ -176,7 +180,7 @@ def draw_k_best_lines(image, add_k, court, court_canny):
 
     # Perform Hough Line Transform
     # P is faster but needs to be converted and gave only vertical lines??
-    lines = cv2.HoughLines(edges, 1, np.pi / 180, 50)
+    lines = cv2.HoughLines(edges, 1, np.pi / 360, 50)
 
     if lines is not None:
         lines = lines[:add_k] if len(lines) > add_k else lines  # Get the k best lines or all lines if less than k
@@ -197,45 +201,61 @@ def draw_k_best_lines(image, add_k, court, court_canny):
 
 
         if verts == [] or horzs == []:
-            return image, None, None, None, None, None
+            return image, None, None, None, None, None, edges
         
-        H, p1, p2, p3, p4 = find_best_projection(image, verts, horzs, court, court_canny)
+        H, p1, p2, p3, p4 = find_best_projection(image, verts, horzs, court, court_canny, edges)
 
-    return image, H, p1, p2, p3, p4
+    return image, H, p1, p2, p3, p4, edges
 
-def warp_image(src_points, dst_points, img_from, img_to):
+def warp_image(src_points, dst_points, img_from, img_to, display=False):
     '''Computes homography and warps image onto another'''
 
     src_points = np.array(src_points)
     dst_points = np.array(dst_points)
     H, _ = cv2.findHomography(src_points, dst_points)
 
-    img_proj = cv2.warpPerspective(img_from, H, (img_to.shape[1], img_to.shape[0]), borderValue = [255,255,255])
-
-    return img_proj, H
+    if display:
+        img_proj = cv2.warpPerspective(img_from, H, (img_to.shape[1], img_to.shape[0]), borderValue = [255,255,255])
+        return img_proj, H
+    else:
+        return H
 
 def get_reprojection_error(src, dst):
     '''Gets the reprojection error between two images
     Src is assumed to have empty regions without importance
     Consider using the Canny line representations'''  
 
-    unweighted = np.where(dst != 0, src, dst)
+    on_court = np.where(dst == 255, src, dst)
+    out_of_bounds = np.where(dst == 0, src, dst)
     
-    lowest_row = np.sum(np.sum(unweighted, axis=2), axis=1)
+    lowest_row = np.sum(np.sum(on_court, axis=2), axis=1)
     lowest_row = np.where(lowest_row != len(src[0]) * 255 * 3)[0]
-    lowest_row = lowest_row[-1] if len(lowest_row) > 0 else 0
+    lowest_row = lowest_row[-1] if len(lowest_row) > 0 else 1
 
-    total = np.sum(unweighted[:lowest_row]) / lowest_row
+    total = np.sum(on_court[:lowest_row]) / lowest_row
+    total += np.sum(out_of_bounds[:lowest_row] == 0) / lowest_row
 
     #total area within the court that is "court colored"
-
     return total
+
+def eval_line(p1, p2, canny):
+    '''Gives a line score based on how well it matches the canny image lines
+    
+    p1 => first point of line
+    p2 => second point of line
+    canny => canny image to use for eval
+    
+    Return score.  Higher score is better fit'''
+    line = np.zeros_like(canny)
+    line = cv2.line(line, (int(p1[0]), int(p1[1])), (int(p2[0]), int(p2[1])), 255, 2)
+    score = np.sum(np.where(line==255, canny, 0))
+    return score
 
 def get_best_frame_homography(frame, court, court_canny):
     '''Returns the best homography from the frame to the court'''
 
     kmeans = frame_to_2means(frame)
-    lines, H, p1, p2, p3, p4 = draw_k_best_lines(kmeans, 10, court, court_canny)
+    lines, H, p1, p2, p3, p4, canny = draw_k_best_lines(kmeans, 10, court, court_canny)
+    cv2.imshow('lines', lines)
 
-
-    return H, p1, p2, p3, p4
+    return H, p1, p2, p3, p4, canny

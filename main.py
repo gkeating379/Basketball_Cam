@@ -6,7 +6,8 @@ from tracking import tracking, jersey
 import time
 
 
-model = YOLO('models/New Model Medium/100/best.pt')
+model = YOLO('models/New Model Medium/100/best.pt') #MED runs about 200 ms
+#model = YOLO('models\\New Model\\best(1)_20.pt') #max runs about 1000ms
 
 # results = model.predict('Input_Videos\knicks.mp4', save=True)
 
@@ -39,6 +40,7 @@ while cap.isOpened():
     #player location
     cur_pred = model.predict(frame, save=False, classes=[1,2]) #ignore ball handlers
     tracked = track.get_object_tracks(frame, cur_pred[0])
+    
     detections += [cur_pred[0].boxes.xyxy]
     detections = detections[-5:]
 
@@ -53,7 +55,7 @@ while cap.isOpened():
 
     
     cv2.imshow('frame', frame)
-    cv2.imwrite('frame.png',frame)
+    #cv2.imwrite('frame.png',frame)
     print(f'Frame Runtime: {(time.time() - start_time)} seconds')
 
 

@@ -1,6 +1,5 @@
 import cv2
 import numpy as np
-import time
 from . import homography
 
 base_values = {'top-right': (546, 107), 'top-left': (53, 107), 'bot-left': (53, 1039), 'bot-right': (546, 1039),
@@ -56,7 +55,7 @@ def create_mask(im, court_corners, detections):
             mask[y1-buffer:y2+buffer, x1-buffer:x2+buffer] = 0
 
     #mask bottom part of screen where score is
-    #TODO remove static regions
+    #remove static regions
     mask[-len(mask)//4:] = 0
 
     #remove left and right bounds where detection gets bad
@@ -80,7 +79,7 @@ def get_affine_transform(frame, cur_frame, old_frame, old_features, court_corner
     M => affine transform matrix
     features => features found in the cur_frame'''
     mask = create_mask(cur_frame, court_corners, detections)
-    cv2.imshow('masked image', mask*cur_frame)
+    #cv2.imshow('masked image', mask*cur_frame)
     features = cv2.goodFeaturesToTrack(cur_frame, maxCorners=200, qualityLevel=0.1, minDistance=10, mask=mask, blockSize=13)
     M = None
     if old_frame is not None:
@@ -130,36 +129,43 @@ def update_homography(frame, court, court_canny, old_frame, old_features, court_
     frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) 
 
     #homography by lines
-    H_lines, n1, n2, n3, n4 = homography.get_best_frame_homography(frame, court, court_canny)
-    H_lines = None
+    H_lines, n1, n2, n3, n4, canny = homography.get_best_frame_homography(frame, court, court_canny)
+    #TODO testing affine transformation
+    #H_lines = None
     #court_corners = np.array([n1, n2, n3, n4])
 
     #homography by affine
     M, features = get_affine_transform(frame, frame_gray, old_frame, old_features, court_corners, detections)
+    #TODO testing homography
+    #M = None if H_lines is not None else M
     if M is not None:
         dst_points = np.array([base_values['top-left'], base_values['top-right'], base_values['bot-left'], base_values['bot-right']])
         court_corners = update_drift_full(M, court_corners)
         H_affine, _ = cv2.findHomography(court_corners, dst_points)
         
         if H_lines is not None:
-            affine = draw_projection(frame, court, H_affine)
-            lines = draw_projection(frame, court, H_lines)
                 
-            affine_error = homography.get_reprojection_error(affine, court_canny)
-            lines_error = homography.get_reprojection_error(lines, court_canny)
+            affine_score = (homography.eval_line(court_corners[0], court_corners[1], canny) + homography.eval_line(court_corners[0], court_corners[2], canny)) / 2
+            lines_score = (homography.eval_line(n1, n2, canny) + homography.eval_line(n1, n3, canny)) / 2
             
-            H = H_affine if affine_error < lines_error else H_lines
-            court_corners = court_corners if affine_error < lines_error else np.array([n1, n2, n3, n4])
+            H = H_affine if affine_score > lines_score else H_lines
+            court_corners = court_corners if affine_score > lines_score else np.array([n1, n2, n3, n4])
+            if affine_score > lines_score:
+                print('AFFINE')
+            else:
+                print('Lines')
         else:
             H = H_affine
+            print('AFFINE')
 
     else:
         H = H_lines
+        print('Lines')
         court_corners = np.array([n1, n2, n3, n4])
 
-    
-    if H is not None:
-        draw_projection(frame, court, H)
+    # verify the projection visually
+    # if H is not None:
+    #     draw_projection(frame, court, H)
 
     return H, court_corners, frame_gray, features
 
