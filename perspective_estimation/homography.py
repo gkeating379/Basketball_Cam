@@ -57,15 +57,14 @@ def get_dist(p1, p2):
 
     return out**0.5
 
-def get_four_corners(l1, l2, offset, im_shape):
+def get_four_corners(l1, l2, offset=0, im_height=0):
     '''Takes two lines forming the top and side of the court
     Returns the 4 points of the court corners
     Assumes they intersect
 
     l1 => top line (length)
     l2 => side line (width)
-    offset => distance alon side line by y offset (eg corner is placed at intercept plus offset on the y)
-    im_shape => width and height of the image'''
+    offset => distance alon side line by y offset (eg corner is placed at intercept plus offset on the y)'''
 
     length_to_width = 1.88
     rho1, theta1 = l1
@@ -74,6 +73,12 @@ def get_four_corners(l1, l2, offset, im_shape):
     #p1 is the intersection of the two lines
     x1, y1 = get_polar_intersection(rho1, theta1, rho2, theta2)
     right_side = theta2 > 1 #x1 > im_shape[1]/2
+
+    #set offset as 65% of the way off screen
+    if offset == 0:
+        offset = (y1 - im_height) 
+        offset /= -math.sin(theta2) #if right_side else math.sin(theta2)
+        offset *= .65
 
     #p2 is the point along the width specified by offset
     y2 = y1 + offset
@@ -124,14 +129,14 @@ def draw_four(image, p1, p2, p3, p4, color):
     p3 = (int(p3[0]), int(p3[1]))
     p4 = (int(p4[0]), int(p4[1]))
 
-    cv2.line(image, p1, p2, color, 1)
-    cv2.line(image, p1, p3, [0, 255, 255], 1)
-    cv2.line(image, p3, p4, [255, 255, 0], 1)
-    cv2.line(image, p2, p4, color, 1)
+    cv2.line(image, p1, p2, color, 2)
+    cv2.line(image, p1, p3, [0, 255, 255], 2)
+    cv2.line(image, p3, p4, [255, 255, 0], 2)
+    cv2.line(image, p2, p4, color, 2)
 
     return image
 
-def find_best_projection(image, verts, horzs, court, court_canny, img_canny):
+def find_best_projection(image, verts, horzs, court, img_canny):
     '''Finds the best vertical and horizontal bound for the court
     Returns: Homography from current view to top down view
     
@@ -139,17 +144,15 @@ def find_best_projection(image, verts, horzs, court, court_canny, img_canny):
     verts => list of vertical lines in polar form [rho, theta]
     horzs => list of horizontal lines in polar form
     court => top down image of court
-    court_canny => Canny edges of the top down image'''
+    img_canny => Canny edges of the frame image'''
     #compare horizontal and vertical line intersections
     #find the best two lines to represent court boundaries
     best_err = 0
     proj = []
-    c = 625
     for vert in verts:
         for horz in horzs:
             #drawing for debugging
-            p1, p2, p3, p4, right_side = get_four_corners(horz, vert, c, image.shape[:2])
-
+            p1, p2, p3, p4, right_side = get_four_corners(horz, vert, im_height=len(image))
             draw_four(image, p1, p2, p3, p4, (0, 0, 255))
 
             #determine if court end is on the right
@@ -171,7 +174,7 @@ def find_best_projection(image, verts, horzs, court, court_canny, img_canny):
                 
     return proj, b1, b2, b3, b4
 
-def draw_k_best_lines(image, add_k, court, court_canny):
+def draw_k_best_lines(image, add_k, court):
     # Convert the image to grayscale
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
@@ -180,7 +183,7 @@ def draw_k_best_lines(image, add_k, court, court_canny):
 
     # Perform Hough Line Transform
     # P is faster but needs to be converted and gave only vertical lines??
-    lines = cv2.HoughLines(edges, 1, np.pi / 360, 50)
+    lines = cv2.HoughLines(edges, 1, np.pi / 360, 1)
 
     if lines is not None:
         lines = lines[:add_k] if len(lines) > add_k else lines  # Get the k best lines or all lines if less than k
@@ -203,7 +206,7 @@ def draw_k_best_lines(image, add_k, court, court_canny):
         if verts == [] or horzs == []:
             return image, None, None, None, None, None, edges
         
-        H, p1, p2, p3, p4 = find_best_projection(image, verts, horzs, court, court_canny, edges)
+        H, p1, p2, p3, p4 = find_best_projection(image, verts, horzs, court, edges)
 
     return image, H, p1, p2, p3, p4, edges
 
@@ -251,11 +254,11 @@ def eval_line(p1, p2, canny):
     score = np.sum(np.where(line==255, canny, 0))
     return score
 
-def get_best_frame_homography(frame, court, court_canny):
+def get_best_frame_homography(frame, court):
     '''Returns the best homography from the frame to the court'''
 
     kmeans = frame_to_2means(frame)
-    lines, H, p1, p2, p3, p4, canny = draw_k_best_lines(kmeans, 10, court, court_canny)
+    lines, H, p1, p2, p3, p4, canny = draw_k_best_lines(kmeans, 10, court)
     cv2.imshow('lines', lines)
 
     return H, p1, p2, p3, p4, canny

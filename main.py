@@ -12,7 +12,7 @@ model = YOLO('models/New Model Medium/100/best.pt') #MED runs about 200 ms
 # results = model.predict('Input_Videos\knicks.mp4', save=True)
 
 
-cap = cv2.VideoCapture('Input_Videos\\olympics.mp4')
+cap = cv2.VideoCapture('Input_Videos\\knicks.mp4')
 court = cv2.imread('perspective_estimation\\court.jpg')
 
 track = tracking.Track()
