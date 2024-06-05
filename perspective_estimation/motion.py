@@ -78,11 +78,13 @@ def get_affine_transform(frame, cur_frame, old_frame, old_features, court_corner
     Returns 
     M => affine transform matrix
     features => features found in the cur_frame'''
+    if court_corners is None or court_corners[0] is None:
+        return None, None
     mask = create_mask(cur_frame, court_corners, detections)
     #cv2.imshow('masked image', mask*cur_frame)
     features = cv2.goodFeaturesToTrack(cur_frame, maxCorners=200, qualityLevel=0.1, minDistance=10, mask=mask, blockSize=13)
     M = None
-    if old_frame is not None:
+    if old_frame is not None and old_features is not None:
         new_feats, _, _ = cv2.calcOpticalFlowPyrLK(old_frame, cur_frame, old_features, features, winSize=(21,21), maxLevel=5, criteria=(cv2.TERM_CRITERIA_COUNT + cv2.TERM_CRITERIA_COUNT,50,0.1))
         M, _ = cv2.estimateAffinePartial2D(old_features, new_feats)
 
@@ -108,14 +110,13 @@ def draw_projection(frame, court, H):
     return proj_on_court
 
 
-def update_homography(frame, court, court_canny, old_frame, old_features, court_corners, detections):
+def update_homography(frame, court, old_frame, old_features, court_corners, detections):
     '''Updates the homography between frame and court.  First tries to find corner by intersection
     of Hough Lines.  If this is not possible, then updates previous court boundary with motion found
     by the optical flow transform
     
     frame => current frame
     court => image of court to map to
-    court_canny => image of boundary of court
     old_frame => previous frame
     old_features => features found in previous fram
     court_corners => 4 corners marking the boundary of the court in the previous frame
@@ -129,7 +130,7 @@ def update_homography(frame, court, court_canny, old_frame, old_features, court_
     frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) 
 
     #homography by lines
-    H_lines, n1, n2, n3, n4, canny = homography.get_best_frame_homography(frame, court, court_canny)
+    H_lines, n1, n2, n3, n4, canny = homography.get_best_frame_homography(frame, court)
     #TODO testing affine transformation
     #H_lines = None
     #court_corners = np.array([n1, n2, n3, n4])
@@ -139,7 +140,11 @@ def update_homography(frame, court, court_canny, old_frame, old_features, court_
     #TODO testing homography
     #M = None if H_lines is not None else M
     if M is not None:
-        dst_points = np.array([base_values['top-left'], base_values['top-right'], base_values['bot-left'], base_values['bot-right']])
+        if court_side(court_corners):
+            dst_points = np.array([base_values['top-left'], base_values['top-right'], base_values['bot-left'], base_values['bot-right']])
+        else:
+            dst_points = np.array([base_values['bot-left'], base_values['bot-right'], base_values['top-left'], base_values['top-right']])
+
         court_corners = update_drift_full(M, court_corners)
         H_affine, _ = cv2.findHomography(court_corners, dst_points)
         
@@ -169,3 +174,8 @@ def update_homography(frame, court, court_canny, old_frame, old_features, court_
 
     return H, court_corners, frame_gray, features
 
+def court_side(corners):
+    '''Returns True if the court is looking at the right side'''
+    if corners[0][0] < corners[2][0]:
+        return False
+    return True

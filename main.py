@@ -12,9 +12,8 @@ model = YOLO('models/New Model Medium/100/best.pt') #MED runs about 200 ms
 # results = model.predict('Input_Videos\knicks.mp4', save=True)
 
 
-cap = cv2.VideoCapture('Input_Videos\\knicks.mp4')
+cap = cv2.VideoCapture('Input_Videos\\olympics.mp4')
 court = cv2.imread('perspective_estimation\\court.jpg')
-court_canny = cv2.imread('perspective_estimation\\court_boundary.png')
 
 track = tracking.Track()
 
@@ -46,8 +45,9 @@ while cap.isOpened():
 
     start_time = time.time()
     #camera motion
-    H, court_corners, old_frame, old_features = motion.update_homography(frame, court, court_canny, old_frame, old_features, court_corners, detections)
-    homography.draw_four(frame, court_corners[0], court_corners[1], court_corners[2], court_corners[3], (0, 0, 255))
+    H, court_corners, old_frame, old_features = motion.update_homography(frame, court, old_frame, old_features, court_corners, detections)
+    if court_corners[0] is not None:
+        homography.draw_four(frame, court_corners[0], court_corners[1], court_corners[2], court_corners[3], (0, 0, 255))
 
     #track players over frames
     if H is not None:
