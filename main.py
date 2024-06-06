@@ -17,8 +17,8 @@ model = YOLO(model_path)
 # model = YOLO('models\\New Model\\best(1)_20.pt') #max runs about 1000ms
 
 # output paths
-output_file_floor = 'Court_Diagram.avi'
-output_file_annotated = 'Annotated_Input.avi'
+output_file_floor = 'Output_Videos\\Court_Diagram.avi'
+output_file_annotated = 'Output_Videos\\Annotated_Input.avi'
 
 # Define the codec and create VideoWriter object
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
