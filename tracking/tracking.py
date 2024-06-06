@@ -13,7 +13,7 @@ line_type = 2
 
 class Track:
     def __init__(self):    
-        self.tracker = sv.ByteTrack(track_activation_threshold=0, lost_track_buffer=100, minimum_matching_threshold=0.7)
+        self.tracker = sv.ByteTrack(track_activation_threshold=0.1, lost_track_buffer=100, minimum_matching_threshold=0.7)
         self.label = sv.LabelAnnotator()
         self.jersey_model = YOLO('models\\Jersey\\med\\best.pt')
 
@@ -64,7 +64,8 @@ class Track:
                         thickness,
                         line_type)
 
-        cv2.imshow('Players on Court', marked)
+        # cv2.imshow('Players on Court', marked)
+        return marked
 
     def player_interp(bound, last_frame, frame):
         '''Attempt to track a bounding box into the new frame
