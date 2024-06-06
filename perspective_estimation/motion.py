@@ -88,13 +88,13 @@ def create_mask(im, court_corners, detections):
     return mask
 
 
-def get_affine_transform(frame, cur_frame, old_frame, old_features,
+def get_affine_transform(annotated, cur_frame, old_frame, old_features,
                          court_corners, detections):
     '''Computes the affine transform that best maps between the features in the
     previous frame and the current frame.  Feature correspondce is determined
     through optical flow
 
-    frame => current frame normal (used for displaying feature corresondences)
+    annotated => annotated frame normal (used for displaying feature corresondences)
     cur_frame => current frame in greyscale
     old_frame => last frame in greyscale
     old_features => previous set of features from last frame
@@ -126,7 +126,7 @@ def get_affine_transform(frame, cur_frame, old_frame, old_features,
         for old, new in zip(old_features, new_feats):
             old_p = old.ravel().astype(np.int64)
             new_p = new.ravel().astype(np.int64)
-            cv2.line(frame, old_p, new_p, [255, 0, 0], 3)
+            cv2.line(annotated, old_p, new_p, [255, 0, 0], 3)
 
     return M, features
 
@@ -147,7 +147,7 @@ def draw_projection(frame, court, H):
 
 
 def update_homography(frame, court, old_frame, old_features, court_corners,
-                      detections):
+                      detections, annotated):
     '''Updates the homography between frame and court.  First tries to find
     corner by intersection of Hough Lines.  If this is not possible, then
     updates previous court boundary with motion found by the optical flow
@@ -160,6 +160,7 @@ def update_homography(frame, court, old_frame, old_features, court_corners,
     court_corners => 4 corners marking the boundary of the court in the
                      previous frame
     detections => list of object detections in xyxy
+    annotated => annotated frame to display with markups
 
     Returns
     H => homography from frame to court
@@ -174,7 +175,7 @@ def update_homography(frame, court, old_frame, old_features, court_corners,
     n_corners = np.array([n1, n2, n3, n4])
 
     # homography by affine
-    M, features = get_affine_transform(frame, frame_gray, old_frame,
+    M, features = get_affine_transform(annotated, frame_gray, old_frame,
                                        old_features, court_corners, detections)
 
     # if there is an affine

@@ -17,15 +17,19 @@ model = YOLO(model_path)
 # model = YOLO('models\\New Model\\best(1)_20.pt') #max runs about 1000ms
 
 # output paths
-output_file = 'output_video.avi'
+output_file_floor = 'Court_Diagram.avi'
+output_file_annotated = 'Annotated_Input.avi'
 
 # Define the codec and create VideoWriter object
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
 fps = cap.get(cv2.CAP_PROP_FPS)
-frame_size = court.shape[:2][::-1]
+frame_size_floor = court.shape[:2][::-1]
+frame_size_annotated = (int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), 
+                        int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
 
 # Create VideoWriter object
-out = cv2.VideoWriter(output_file, fourcc, fps, frame_size)
+out_floor = cv2.VideoWriter(output_file_floor, fourcc, fps, frame_size_floor)
+out_annotated = cv2.VideoWriter(output_file_annotated, fourcc, fps, frame_size_annotated)
 
 # inits
 track = tracking.Track()
@@ -50,16 +54,16 @@ while cap.isOpened():
         break
 
     # player location
-    cur_pred = model.predict(frame, save=False, classes=[1, 2], verbose=False)  # ignore ball handlers
-    tracked = track.get_object_tracks(frame, cur_pred[0])
+    cur_pred = model.predict(frame, save=False, classes=[1, 2], verbose=False)
+    tracked, annotated = track.get_object_tracks(frame.copy(), cur_pred[0])
 
     detections += [cur_pred[0].boxes.xyxy]
     detections = detections[-5:]
 
     # camera motion
-    H, court_corners, old_frame, old_features = motion.update_homography(frame, court, old_frame, old_features, court_corners, detections)
+    H, court_corners, old_frame, old_features = motion.update_homography(frame, court, old_frame, old_features, court_corners, detections, annotated)
     if court_corners[0] is not None:
-        homography.draw_four(frame, court_corners[0], court_corners[1], court_corners[2], court_corners[3], (0, 0, 255))
+        homography.draw_four(annotated, court_corners[0], court_corners[1], court_corners[2], court_corners[3], (0, 0, 255))
 
     # track players over frames
     if H is not None:
@@ -67,11 +71,13 @@ while cap.isOpened():
     else:
         res = court
 
-    out.write(res)
+    out_floor.write(res)
+    out_annotated.write(annotated)
 
     # cv2.imshow('frame', frame)
     # cv2.imwrite('frame.png',frame)
 
-out.release()
+out_floor.release()
+out_annotated.release()
 cap.release()
 cv2.destroyAllWindows()

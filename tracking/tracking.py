@@ -13,20 +13,31 @@ line_type = 2
 
 class Track:
     def __init__(self):    
-        self.tracker = sv.ByteTrack(track_activation_threshold=0.1, lost_track_buffer=100, minimum_matching_threshold=0.7)
-        self.label = sv.LabelAnnotator()
+        self.tracker = sv.ByteTrack(track_activation_threshold=0.5,
+                                    lost_track_buffer=100,
+                                    minimum_matching_threshold=0.7)
+        self.label = sv.LabelAnnotator(
+                        color=sv.ColorPalette(
+                            colors=[sv.Color(r=0, g=90, b=255)]))
+        self.ellipse_annotator = sv.EllipseAnnotator(
+                                    color=sv.ColorPalette(
+                                        colors=[sv.Color(r=0, g=90, b=255)]))
         self.jersey_model = YOLO('models\\Jersey\\med\\best.pt')
 
     def get_object_tracks(self, frame, results):
         detections = sv.Detections.from_ultralytics(results)
         tracked_detections = self.tracker.update_with_detections(detections)
-        # labels = [ f"{tracker_id}" for tracker_id in tracked_detections.tracker_id ]
-        # print(tracked_detections.tracker_id)
-        # print(len(detections), len(labels))
-        # annotated_frame = self.label.annotate(scene=frame.copy(), detections=tracked_detections, labels=labels)
-        # cv2.imshow('tracked', annotated_frame)
+        if len(tracked_detections.tracker_id) == len(detections):
+            labels = [f"{tracker_id}" for tracker_id in tracked_detections.tracker_id]
+            annotated_frame = self.label.annotate(scene=frame,
+                                                  detections=tracked_detections,
+                                                  labels=labels)
+            annotated_frame = self.ellipse_annotator.annotate(scene=annotated_frame,
+                                                              detections=tracked_detections)
+        else:
+            annotated_frame = frame
 
-        return tracked_detections
+        return tracked_detections, annotated_frame
 
     def proj_track(self, tracked_detections, H, court, frame):
         '''Draws the circle icons for each detected player onto the court
