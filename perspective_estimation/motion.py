@@ -171,7 +171,7 @@ def update_homography(frame, court, old_frame, old_features, court_corners,
 
     # homography by lines
     H_lines, n1, n2, n3, n4, canny = homography.get_best_frame_homography(frame, court)
-    n_corners = np.array([n1, n2, n3, 4])
+    n_corners = np.array([n1, n2, n3, n4])
 
     # homography by affine
     M, features = get_affine_transform(frame, frame_gray, old_frame,
